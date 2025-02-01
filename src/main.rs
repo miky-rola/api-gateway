@@ -1,12 +1,12 @@
 use bytes::Bytes;
 use futures::future::join_all;
-use http::header::{HeaderName, HeaderValue};
-use hyper::{Body, Client, Request, Response, Uri};
+use hyper::{Body, Client, Request, Response, StatusCode, Method};
+use hyper::header::{HeaderName, HeaderValue};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 use warp::{http::HeaderMap, Filter};
@@ -45,17 +45,24 @@ impl fmt::Display for GatewayError {
 impl warp::reject::Reject for GatewayError {}
 
 // Cache entry structure
-#[derive(Clone)]
 struct CacheEntry {
-    response: Response<Body>,
-    expires_at: Instant,
+    response_parts: (StatusCode, HeaderMap, Bytes),
+    expires_at: SystemTime,
 }
 
 // Rate limiting structure
-#[derive(Default)]
 struct RateLimit {
     count: u32,
-    window_start: Instant,
+    window_start: SystemTime,
+}
+
+impl Default for RateLimit {
+    fn default() -> Self {
+        Self {
+            count: 0,
+            window_start: SystemTime::now(),
+        }
+    }
 }
 
 // Shared state
@@ -111,8 +118,7 @@ async fn main() {
                        state: Arc<RwLock<AppState>>| {
             let client = client.clone();
             async move {
-                // Start timing the request
-                let start_time = Instant::now();
+                let start_time = SystemTime::now();
 
                 // Check authentication
                 if !is_authenticated(&headers) {
@@ -126,9 +132,9 @@ async fn main() {
 
                 // For GET requests, check cache first
                 let cache_key = format!("{}{}{}", method, full_path.as_str(), query);
-                if method == http::Method::GET {
-                    if let Some(cached_response) = get_cached_response(&state, &cache_key).await {
-                        return Ok(cached_response);
+                if method == Method::GET {
+                    if let Some(response) = get_cached_response(&state, &cache_key).await {
+                        return Ok(response);
                     }
                 }
 
@@ -144,7 +150,7 @@ async fn main() {
                     uri_str.push_str(&query);
                 }
 
-                let uri: Uri = uri_str.parse::<Uri>().map_err(|e| {
+                let uri = uri_str.parse().map_err(|e| {
                     eprintln!("Failed to parse URI {}: {}", uri_str, e);
                     warp::reject::custom(GatewayError::InvalidUri(e.to_string()))
                 })?;
@@ -178,23 +184,46 @@ async fn main() {
                     Err(_) => return Err(warp::reject::custom(GatewayError::Timeout)),
                 };
 
-                // Build response
-                let response = add_cors_headers(response);
+                // Extract parts before adding CORS headers
+                let (parts, body) = response.into_parts();
+                let body_bytes = hyper::body::to_bytes(body).await.map_err(|e| {
+                    eprintln!("Error reading response body: {}", e);
+                    warp::reject::custom(GatewayError::Http(e.to_string()))
+                })?;
+
+                // Build new response with CORS headers
+                let mut response = Response::builder()
+                    .status(parts.status)
+                    .body(Body::from(body_bytes.clone())).unwrap();
                 
+                // Add original headers
+                let headers = response.headers_mut();
+                for (name, value) in parts.headers.iter() {
+                    headers.insert(name, value.clone());
+                }
+
+                // Add CORS headers
+                add_cors_headers(headers);
+
                 // Cache GET responses
-                if method == http::Method::GET {
-                    cache_response(&state, &cache_key, response.clone()).await;
+                if method == Method::GET {
+                    cache_response(
+                        &state,
+                        &cache_key,
+                        (parts.status, parts.headers, body_bytes),
+                    ).await;
                 }
 
                 // Log the request
-                let duration = start_time.elapsed();
-                println!(
-                    "{} {} {} {}ms",
-                    method,
-                    full_path.as_str(),
-                    response.status(),
-                    duration.as_millis()
-                );
+                if let Ok(duration) = start_time.elapsed() {
+                    println!(
+                        "{} {} {} {}ms",
+                        method,
+                        full_path.as_str(),
+                        response.status(),
+                        duration.as_millis()
+                    );
+                }
 
                 Ok(response)
             }
@@ -211,7 +240,6 @@ async fn main() {
 }
 
 // Helper functions
-
 async fn check_rate_limit(state: &Arc<RwLock<AppState>>, headers: &HeaderMap) -> bool {
     let mut state = state.write().await;
     let client_ip = headers
@@ -219,14 +247,16 @@ async fn check_rate_limit(state: &Arc<RwLock<AppState>>, headers: &HeaderMap) ->
         .and_then(|h| h.to_str().ok())
         .unwrap_or("unknown");
 
-    let now = Instant::now();
+    let now = SystemTime::now();
     let rate_limit = state.rate_limits.entry(client_ip.to_string())
         .and_modify(|rl| {
-            if now.duration_since(rl.window_start).as_secs() >= RATE_LIMIT_WINDOW_SECS {
-                rl.count = 1;
-                rl.window_start = now;
-            } else {
-                rl.count += 1;
+            if let Ok(duration) = now.duration_since(rl.window_start) {
+                if duration.as_secs() >= RATE_LIMIT_WINDOW_SECS {
+                    rl.count = 1;
+                    rl.window_start = now;
+                } else {
+                    rl.count += 1;
+                }
             }
         })
         .or_insert_with(|| RateLimit {
@@ -240,20 +270,30 @@ async fn check_rate_limit(state: &Arc<RwLock<AppState>>, headers: &HeaderMap) ->
 async fn get_cached_response(state: &Arc<RwLock<AppState>>, cache_key: &str) -> Option<Response<Body>> {
     let state = state.read().await;
     if let Some(entry) = state.cache.get(cache_key) {
-        if Instant::now() < entry.expires_at {
-            return Some(entry.response.clone());
+        if SystemTime::now() < entry.expires_at {
+            let (status, headers, body) = entry.response_parts.clone();
+            let mut response = Response::builder()
+                .status(status)
+                .body(Body::from(body))
+                .unwrap();
+            *response.headers_mut() = headers;
+            return Some(response);
         }
     }
     None
 }
 
-async fn cache_response(state: &Arc<RwLock<AppState>>, cache_key: &str, response: Response<Body>) {
+async fn cache_response(
+    state: &Arc<RwLock<AppState>>,
+    cache_key: &str,
+    response_parts: (StatusCode, HeaderMap, Bytes),
+) {
     let mut state = state.write().await;
     state.cache.insert(
         cache_key.to_string(),
         CacheEntry {
-            response: response.clone(),
-            expires_at: Instant::now() + Duration::from_secs(CACHE_DURATION_SECS),
+            response_parts,
+            expires_at: SystemTime::now() + Duration::from_secs(CACHE_DURATION_SECS),
         },
     );
 }
@@ -270,8 +310,7 @@ fn is_authenticated(headers: &HeaderMap) -> bool {
     false
 }
 
-fn add_cors_headers(mut response: Response<Body>) -> Response<Body> {
-    let headers = response.headers_mut();
+fn add_cors_headers(headers: &mut HeaderMap) {
     headers.insert(
         HeaderName::from_static("access-control-allow-origin"),
         HeaderValue::from_static("*"),
@@ -284,21 +323,20 @@ fn add_cors_headers(mut response: Response<Body>) -> Response<Body> {
         HeaderName::from_static("access-control-allow-headers"),
         HeaderValue::from_static("Content-Type, Authorization"),
     );
-    response
 }
 
 async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, Infallible> {
     let (code, message) = if err.is_not_found() {
-        (http::StatusCode::NOT_FOUND, "Not Found")
+        (StatusCode::NOT_FOUND, "Not Found")
     } else if let Some(e) = err.find::<GatewayError>() {
         match e {
-            GatewayError::RateLimitExceeded => (http::StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded"),
-            GatewayError::Timeout => (http::StatusCode::GATEWAY_TIMEOUT, "Gateway timeout"),
-            GatewayError::Unauthorized => (http::StatusCode::UNAUTHORIZED, "Unauthorized"),
-            _ => (http::StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
+            GatewayError::RateLimitExceeded => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded"),
+            GatewayError::Timeout => (StatusCode::GATEWAY_TIMEOUT, "Gateway timeout"),
+            GatewayError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized"),
+            _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
         }
     } else {
-        (http::StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
+        (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
     };
 
     Ok(warp::reply::with_status(message.to_string(), code))
