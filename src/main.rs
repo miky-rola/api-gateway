@@ -11,6 +11,9 @@ use tokio::sync::RwLock;
 use tokio::time::timeout;
 use warp::{http::HeaderMap, Filter};
 use std::fmt;
+use http::Uri;
+// |
+// 1   + use hyper::Uri;
 
 // Configuration constants
 const BACKEND_BASE: &str = "http://localhost:8081";
@@ -90,19 +93,14 @@ lazy_static! {
 
 #[tokio::main]
 async fn main() {
-    // Create shared state
     let state = Arc::new(RwLock::new(AppState::new()));
     let state_filter = warp::any().map(move || state.clone());
-
-    // Create a Hyper client with timeout
     let client = Client::new();
 
-    // Health check route
     let health_check = warp::path("health")
         .and(warp::get())
         .map(|| "OK");
 
-    // Main proxy route
     let proxy = warp::any()
         .and(warp::method())
         .and(warp::header::headers_cloned())
@@ -110,7 +108,7 @@ async fn main() {
         .and(warp::query::raw().or_else(|_| async { Ok::<(String,), Infallible>((String::new(),)) }))
         .and(warp::body::bytes())
         .and(state_filter)
-        .and_then(move |method,
+        .and_then(move |method: Method,
                        headers: HeaderMap,
                        full_path: warp::path::FullPath,
                        query: String,
@@ -120,17 +118,14 @@ async fn main() {
             async move {
                 let start_time = SystemTime::now();
 
-                // Check authentication
                 if !is_authenticated(&headers) {
                     return Err(warp::reject::custom(GatewayError::Unauthorized));
                 }
 
-                // Check rate limit
                 if !check_rate_limit(&state, &headers).await {
                     return Err(warp::reject::custom(GatewayError::RateLimitExceeded));
                 }
 
-                // For GET requests, check cache first
                 let cache_key = format!("{}{}{}", method, full_path.as_str(), query);
                 if method == Method::GET {
                     if let Some(response) = get_cached_response(&state, &cache_key).await {
@@ -138,7 +133,6 @@ async fn main() {
                     }
                 }
 
-                // Build the forwarding URI
                 let mut path = full_path.as_str().to_string();
                 if path.starts_with(STRIP_PATH_PREFIX) {
                     path = path[STRIP_PATH_PREFIX.len()..].to_string();
@@ -150,18 +144,16 @@ async fn main() {
                     uri_str.push_str(&query);
                 }
 
-                // Fixed line with type annotation
-                let uri = uri_str.parse().map_err(|e: hyper::http::uri::InvalidUri| {
+                // Fixed URI parsing with explicit type
+                let uri: Uri = uri_str.parse().map_err(|e: hyper::http::uri::InvalidUri| {
                     eprintln!("Failed to parse URI {}: {}", uri_str, e);
                     warp::reject::custom(GatewayError::InvalidUri(e.to_string()))
                 })?;
 
-                // Build and send the request
                 let mut req_builder = Request::builder()
                     .method(method.clone())
                     .uri(uri);
 
-                // Forward headers except host
                 for (name, value) in headers.iter() {
                     if name.as_str().to_lowercase() != "host" {
                         req_builder = req_builder.header(name, value);
@@ -173,7 +165,6 @@ async fn main() {
                     warp::reject::custom(GatewayError::Http(e.to_string()))
                 })?;
 
-                // Forward the request with timeout
                 let response = match timeout(
                     Duration::from_secs(REQUEST_TIMEOUT_SECS),
                     client.request(req)
@@ -185,28 +176,23 @@ async fn main() {
                     Err(_) => return Err(warp::reject::custom(GatewayError::Timeout)),
                 };
 
-                // Extract parts before adding CORS headers
                 let (parts, body) = response.into_parts();
                 let body_bytes = hyper::body::to_bytes(body).await.map_err(|e| {
                     eprintln!("Error reading response body: {}", e);
                     warp::reject::custom(GatewayError::Http(e.to_string()))
                 })?;
 
-                // Build new response with CORS headers
                 let mut response = Response::builder()
                     .status(parts.status)
                     .body(Body::from(body_bytes.clone())).unwrap();
                 
-                // Add original headers
                 let headers = response.headers_mut();
                 for (name, value) in parts.headers.iter() {
                     headers.insert(name, value.clone());
                 }
 
-                // Add CORS headers
                 add_cors_headers(headers);
 
-                // Cache GET responses
                 if method == Method::GET {
                     cache_response(
                         &state,
@@ -215,7 +201,6 @@ async fn main() {
                     ).await;
                 }
 
-                // Log the request
                 if let Ok(duration) = start_time.elapsed() {
                     println!(
                         "{} {} {} {}ms",
@@ -230,13 +215,11 @@ async fn main() {
             }
         });
 
-    // Combine routes
     let routes = health_check
         .or(proxy)
         .recover(handle_rejection);
 
-    // Start the server
-    println!("Enhanced API Gateway running on http://127.0.0.1:3030");
+    println!("API Gateway running on http://127.0.0.1:3030");
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
