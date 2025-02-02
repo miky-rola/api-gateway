@@ -3,7 +3,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
 
-An API Gateway built with Rust. This project provides a robust, production-ready solution for managing API traffic, featuring authentication, rate limiting, caching, and more.
+An API Gateway built with Rust. This project provides a robust solution for managing API traffic, featuring authentication, rate limiting, caching, and more.
 
 ## ✨ Features
 
