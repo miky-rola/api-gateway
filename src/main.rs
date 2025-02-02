@@ -1,94 +1,19 @@
 use bytes::Bytes;
-// use futures::future::join_all;
-use hyper::{Body, Client, Request, Response, StatusCode, Method};
-use hyper::header::{HeaderName, HeaderValue};
-use lazy_static::lazy_static;
-use std::collections::HashMap;
-use std::convert::Infallible;
+use hyper::{Body, Client, Request, Response, Method, HeaderMap};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
 use tokio::time::timeout;
-use warp::{http::HeaderMap, Filter};
-use std::fmt;
-use http::Uri;
-// |
-// 1   + use hyper::Uri;
-
-// Configuration constants
-const BACKEND_BASE: &str = "http://localhost:8081";
-const RATE_LIMIT_REQUESTS: u32 = 100; // requests per window
-const RATE_LIMIT_WINDOW_SECS: u64 = 60; // window size in seconds
-const REQUEST_TIMEOUT_SECS: u64 = 30;
-const CACHE_DURATION_SECS: u64 = 300; // 5 minutes
-const STRIP_PATH_PREFIX: &str = "/api"; // Strip this prefix before forwarding
-
-#[derive(Debug)]
-enum GatewayError {
-    InvalidUri(String),
-    Http(String),
-    RateLimitExceeded,
-    Timeout,
-    Unauthorized,
-}
-
-impl fmt::Display for GatewayError {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match self {
-            Self::InvalidUri(e) => write!(f, "Invalid URI: {}", e),
-            Self::Http(e) => write!(f, "HTTP Error: {}", e),
-            Self::RateLimitExceeded => write!(f, "Rate limit exceeded"),
-            Self::Timeout => write!(f, "Request timed out"),
-            Self::Unauthorized => write!(f, "Unauthorized"),
-        }
-    }
-}
-
-impl warp::reject::Reject for GatewayError {}
-
-// Cache entry structure
-struct CacheEntry {
-    response_parts: (StatusCode, HeaderMap, Bytes),
-    expires_at: SystemTime,
-}
-
-// Rate limiting structure
-struct RateLimit {
-    count: u32,
-    window_start: SystemTime,
-}
-
-impl Default for RateLimit {
-    fn default() -> Self {
-        Self {
-            count: 0,
-            window_start: SystemTime::now(),
-        }
-    }
-}
-
-// Shared state
-struct AppState {
-    cache: HashMap<String, CacheEntry>,
-    rate_limits: HashMap<String, RateLimit>,
-}
-
-impl AppState {
-    fn new() -> Self {
-        Self {
-            cache: HashMap::new(),
-            rate_limits: HashMap::new(),
-        }
-    }
-}
-
-lazy_static! {
-    static ref VALID_AUTH_TOKENS: HashMap<String, String> = {
-        let mut m = HashMap::new();
-        m.insert("example-token".to_string(), "example-user".to_string());
-        m
-    };
-}
+use warp::{Filter, http::Uri};
+use api_gateway::{
+    AppState,
+    GatewayError,
+    config::{BACKEND_BASE, REQUEST_TIMEOUT_SECS, STRIP_PATH_PREFIX},
+    services::{check_rate_limit, get_cached_response, cache_response, is_authenticated},
+    middleware::add_cors_headers,
+    handlers::handle_rejection,
+};
+use std::convert::Infallible;
 
 #[tokio::main]
 async fn main() {
@@ -219,107 +144,4 @@ async fn main() {
 
     println!("API Gateway running on http://127.0.0.1:3030");
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
-}
-
-
-async fn check_rate_limit(state: &Arc<RwLock<AppState>>, headers: &HeaderMap) -> bool {
-    let mut state = state.write().await;
-    let client_ip = headers
-        .get("x-forwarded-for")
-        .and_then(|h| h.to_str().ok())
-        .unwrap_or("unknown");
-
-    let now = SystemTime::now();
-    let rate_limit = state.rate_limits.entry(client_ip.to_string())
-        .and_modify(|rl| {
-            if let Ok(duration) = now.duration_since(rl.window_start) {
-                if duration.as_secs() >= RATE_LIMIT_WINDOW_SECS {
-                    rl.count = 1;
-                    rl.window_start = now;
-                } else {
-                    rl.count += 1;
-                }
-            }
-        })
-        .or_insert_with(|| RateLimit {
-            count: 1,
-            window_start: now,
-        });
-
-    rate_limit.count <= RATE_LIMIT_REQUESTS
-}
-
-async fn get_cached_response(state: &Arc<RwLock<AppState>>, cache_key: &str) -> Option<Response<Body>> {
-    let state = state.read().await;
-    if let Some(entry) = state.cache.get(cache_key) {
-        if SystemTime::now() < entry.expires_at {
-            let (status, headers, body) = entry.response_parts.clone();
-            let mut response = Response::builder()
-                .status(status)
-                .body(Body::from(body))
-                .unwrap();
-            *response.headers_mut() = headers;
-            return Some(response);
-        }
-    }
-    None
-}
-
-async fn cache_response(
-    state: &Arc<RwLock<AppState>>,
-    cache_key: &str,
-    response_parts: (StatusCode, HeaderMap, Bytes),
-) {
-    let mut state = state.write().await;
-    state.cache.insert(
-        cache_key.to_string(),
-        CacheEntry {
-            response_parts,
-            expires_at: SystemTime::now() + Duration::from_secs(CACHE_DURATION_SECS),
-        },
-    );
-}
-
-fn is_authenticated(headers: &HeaderMap) -> bool {
-    if let Some(auth_header) = headers.get("Authorization") {
-        if let Ok(auth_str) = auth_header.to_str() {
-            if auth_str.starts_with("Bearer ") {
-                let token = &auth_str[7..];
-                return VALID_AUTH_TOKENS.contains_key(token);
-            }
-        }
-    }
-    false
-}
-
-fn add_cors_headers(headers: &mut HeaderMap) {
-    headers.insert(
-        HeaderName::from_static("access-control-allow-origin"),
-        HeaderValue::from_static("*"),
-    );
-    headers.insert(
-        HeaderName::from_static("access-control-allow-methods"),
-        HeaderValue::from_static("GET, POST, PUT, DELETE, OPTIONS"),
-    );
-    headers.insert(
-        HeaderName::from_static("access-control-allow-headers"),
-        HeaderValue::from_static("Content-Type, Authorization"),
-    );
-}
-
-async fn handle_rejection(err: warp::Rejection) -> Result<impl warp::Reply, Infallible> {
-    let (code, message) = if err.is_not_found() {
-        (StatusCode::NOT_FOUND, "Not Found")
-    } else if let Some(e) = err.find::<GatewayError>() {
-        match e {
-            GatewayError::RateLimitExceeded => (StatusCode::TOO_MANY_REQUESTS, "Rate limit exceeded"),
-            GatewayError::Timeout => (StatusCode::GATEWAY_TIMEOUT, "Gateway timeout"),
-            GatewayError::Unauthorized => (StatusCode::UNAUTHORIZED, "Unauthorized"),
-            _ => (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error"),
-        }
-    } else {
-        (StatusCode::INTERNAL_SERVER_ERROR, "Internal server error")
-    };
-
-    Ok(warp::reply::with_status(message.to_string(), code))
 }
