@@ -1,6 +1,6 @@
 # Rust API Gateway
 
-An API Gateway built with Rust. This project provides a robust solution for managing API traffic, featuring authentication, rate limiting, caching, and more.
+An API Gateway built with Rust. This project provides a robust solution for managing API traffic, featuring authentication, rate limiting and caching.
 
 ##  Features
 
