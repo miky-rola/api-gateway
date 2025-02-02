@@ -1,12 +1,12 @@
 use bytes::Bytes;
-use futures::future::join_all;
+// use futures::future::join_all;
 use hyper::{Body, Client, Request, Response, StatusCode, Method};
 use hyper::header::{HeaderName, HeaderValue};
 use lazy_static::lazy_static;
 use std::collections::HashMap;
 use std::convert::Infallible;
 use std::sync::Arc;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, SystemTime};
 use tokio::sync::RwLock;
 use tokio::time::timeout;
 use warp::{http::HeaderMap, Filter};
