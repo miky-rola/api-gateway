@@ -9,7 +9,12 @@ use api_gateway::{
     AppState,
     GatewayError,
     config::{BACKEND_BASE, REQUEST_TIMEOUT_SECS, STRIP_PATH_PREFIX},
-    services::{check_rate_limit, get_cached_response, cache_response, is_authenticated},
+    services::{
+        check_rate_limit, 
+        get_cached_response, 
+        cache_response, 
+        is_authenticated
+    },
     middleware::add_cors_headers,
     handlers::handle_rejection,
 };
