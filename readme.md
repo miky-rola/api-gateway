@@ -73,7 +73,7 @@ api-gateway/
 1. Clone the repository:
 ```bash
 git clone https://github.com/miky-rola/api-gateway
-cd rust-api-gateway
+cd api-gateway
 ```
 
 2. Build the project:
