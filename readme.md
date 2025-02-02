@@ -1,43 +1,43 @@
-# Rust API Gateway 🚀
+# Rust API Gateway
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Rust](https://img.shields.io/badge/rust-1.75%2B-blue.svg)](https://www.rust-lang.org)
 
 An API Gateway built with Rust. This project provides a robust solution for managing API traffic, featuring authentication, rate limiting, caching, and more.
 
-## ✨ Features
+##  Features
 
-- 🔒 **Authentication**
+-  **Authentication**
   - Bearer token authentication
   - Configurable token validation
   - Secure token management
 
-- 🚦 **Rate Limiting**
+- **Rate Limiting**
   - Per-client rate limiting
   - Configurable time windows
   - Protection against DoS attacks
 
-- 💨 **Caching**
+- **Caching**
   - In-memory caching for GET requests
   - Configurable cache duration
   - Automatic cache cleanup
 
-- ⚡ **High Performance**
+- **High Performance**
   - Built with Rust's async/await
   - Efficient memory usage
   - Connection pooling
 
-- 🔄 **Proxy Capabilities**
+- **Proxy Capabilities**
   - Request/Response transformation
   - Path-based routing
   - Backend service proxying
 
-- 📊 **Monitoring**
+-  **Monitoring**
   - Request/Response logging
   - Performance metrics
   - Error tracking
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 api-gateway/
@@ -60,7 +60,7 @@ api-gateway/
     └── integration_tests.rs
 ```
 
-## 🚀 Quick Start
+## Quick Start
 
 ### Prerequisites
 
@@ -106,7 +106,7 @@ The gateway will start on `http://127.0.0.1:3030`
 | `CACHE_DURATION_SECS` | Cache duration | 300 seconds |
 | `STRIP_PATH_PREFIX` | Path prefix to strip | `/api` |
 
-## 🔍 API Usage
+## API Usage
 
 ### Health Check
 ```bash
@@ -125,7 +125,7 @@ curl -H "Authorization: Bearer example-token" \
      http://localhost:3030/api/cached-endpoint
 ```
 
-## 🧪 Testing
+## Testing
 
 Run all tests:
 ```bash
@@ -151,7 +151,7 @@ RUST_LOG=debug cargo test
 RUST_LOG=debug cargo run
 ```
 
-## 🛡️ Security
+## Security
 
 - Bearer token authentication
 - Rate limiting protection
@@ -178,7 +178,7 @@ cargo test
 RUST_LOG=debug cargo run
 ```
 
-## 🤝 Contributing
+## Contributing
 
 1. Fork the repository
 2. Create your feature branch:
@@ -198,13 +198,13 @@ git push origin new-feature
 
 5. Open a Pull Request
 
-## 🙏 Acknowledgments
+## Acknowledgments
 
 - [Warp](https://github.com/seanmonstar/warp) - Web framework
 - [Tokio](https://tokio.rs) - Async runtime
 - [Hyper](https://hyper.rs) - HTTP client/server
 
-## 📞 Contact
+## Contact
 
 miky rola - [mikyrola8@gmail.com](mikyrola8@gmail.com)
 
@@ -212,4 +212,4 @@ Project Link: [https://github.com/miky-rola/api-gateway](https://github.com/miky
 
 ---
 
-⭐️ Star us on GitHub — it motivates us to make the gateway even better!
+Star us on GitHub — it motivates us to make the gateway even better!
