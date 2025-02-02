@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 use lazy_static::lazy_static;
 
-// Configuration constants
 pub const BACKEND_BASE: &str = "http://localhost:8081";
 pub const RATE_LIMIT_REQUESTS: u32 = 100; // requests per window
 pub const RATE_LIMIT_WINDOW_SECS: u64 = 60; // window size in seconds
