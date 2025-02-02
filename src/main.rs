@@ -23,7 +23,6 @@ const REQUEST_TIMEOUT_SECS: u64 = 30;
 const CACHE_DURATION_SECS: u64 = 300; // 5 minutes
 const STRIP_PATH_PREFIX: &str = "/api"; // Strip this prefix before forwarding
 
-// Custom error types
 #[derive(Debug)]
 enum GatewayError {
     InvalidUri(String),
@@ -144,7 +143,6 @@ async fn main() {
                     uri_str.push_str(&query);
                 }
 
-                // Fixed URI parsing with explicit type
                 let uri: Uri = uri_str.parse().map_err(|e: hyper::http::uri::InvalidUri| {
                     eprintln!("Failed to parse URI {}: {}", uri_str, e);
                     warp::reject::custom(GatewayError::InvalidUri(e.to_string()))
@@ -223,7 +221,7 @@ async fn main() {
     warp::serve(routes).run(([127, 0, 0, 1], 3030)).await;
 }
 
-// Helper functions
+
 async fn check_rate_limit(state: &Arc<RwLock<AppState>>, headers: &HeaderMap) -> bool {
     let mut state = state.write().await;
     let client_ip = headers
