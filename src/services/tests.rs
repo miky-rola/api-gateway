@@ -120,15 +120,12 @@ mod tests {
     async fn test_authentication() {
         let mut headers = HeaderMap::new();
         
-        // Test invalid auth header
         headers.insert(AUTHORIZATION, "Invalid".parse().unwrap());
         assert!(!is_authenticated(&headers));
 
-        // Test invalid bearer token
         headers.insert(AUTHORIZATION, "Bearer invalid-token".parse().unwrap());
         assert!(!is_authenticated(&headers));
 
-        // Test valid bearer token
         headers.insert(AUTHORIZATION, "Bearer example-token".parse().unwrap());
         assert!(is_authenticated(&headers));
     }
