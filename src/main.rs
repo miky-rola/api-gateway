@@ -150,7 +150,8 @@ async fn main() {
                     uri_str.push_str(&query);
                 }
 
-                let uri = uri_str.parse().map_err(|e| {
+                // Fixed line with type annotation
+                let uri = uri_str.parse().map_err(|e: hyper::http::uri::InvalidUri| {
                     eprintln!("Failed to parse URI {}: {}", uri_str, e);
                     warp::reject::custom(GatewayError::InvalidUri(e.to_string()))
                 })?;
