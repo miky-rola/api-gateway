@@ -144,13 +144,6 @@ cargo test --test integration_tests
 RUST_LOG=debug cargo test
 ```
 
-## 📊 Performance
-
-### Benchmarks
-- Handles 10,000+ requests/second
-- Sub-millisecond latency for cached responses
-- Minimal memory footprint
-- Efficient connection pooling
 
 ### Monitoring
 ```bash
