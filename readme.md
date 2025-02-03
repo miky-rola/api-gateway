@@ -92,7 +92,7 @@ cargo run --release
 
 The gateway will start on `http://127.0.0.1:3030`
 
-## 🔧 Configuration
+## Configuration
 
 | Parameter | Description | Default |
 |-----------|-------------|---------|
