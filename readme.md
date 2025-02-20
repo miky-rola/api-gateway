@@ -205,7 +205,7 @@ git push origin new-feature
 
 miky rola - [mikyrola8@gmail.com](mikyrola8@gmail.com)
 
-Project Link: [https://github.com/miky-rola/api-gateway](https://github.com/miky-rola/api-gateway)
+[https://github.com/miky-rola/api-gateway](https://github.com/miky-rola/api-gateway)
 
 ---
 
