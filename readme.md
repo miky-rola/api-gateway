@@ -156,7 +156,7 @@ RUST_LOG=debug cargo run
 - CORS protection
 - No sensitive data logging
 
-## 🔧 Local Development
+## Local Development
 
 1. Clone and install dependencies:
 ```bash
